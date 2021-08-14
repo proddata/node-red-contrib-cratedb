@@ -1,0 +1,224 @@
+<!--
+   Copyright 2024 Georg Traar
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+-->
+
+<!-- General node -->
+<script type="text/javascript">
+    RED.nodes.registerType('query',{
+        category: 'storage',
+        color: '#1BC0E9',
+        defaults: {
+            server: {value:"", type:"cratedb-cluster"},
+            name: {value:""},
+            query: {value: ""}
+        },
+        inputs:1,
+        outputs:1,
+        icon: "cratedb-logo.svg",
+        label: function() {
+            return this.name || "query";
+        },
+        labelStyle: function () {
+			return this.name ? 'node_label_italic' : '';
+		},
+        oneditprepare: function () {
+			this.editor = RED.editor.createEditor({
+				id: 'node-input-editor',
+				mode: 'ace/mode/sql',
+				value: this.query,
+			});
+			this.editor.focus();
+		},
+		oneditsave: function () {
+            $('#node-input-query').val(this.editor.getValue());
+			this.editor.destroy();
+            delete this.editor;
+
+		},
+        oneditcancel: function() {
+            this.editor.destroy();
+            delete this.editor;
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="query">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-server"><i class="fa fa-database"></i> Cluster</label>
+        <input type="text" id="node-input-server" placeholder="Crate DB">
+    </div>
+    <div class="form-row" style="position: relative; margin-bottom: 0px;">
+		<label for="node-input-query"><i class="fa fa-file-code-o"></i> Query</label>
+		<input type="hidden" id="node-input-query" autofocus="autofocus" />
+	</div>
+    <div class="form-row node-text-editor-row">
+		<div style="height: 250px; min-height: 150px;" class="node-text-editor" id="node-input-editor"></div>
+	</div>
+</script>
+
+<script type="text/html" data-help-name="query">
+    <p>This node enables execution of SQL queries on a CrateDB cluster.
+        You can configure queries directly within the node settings or pass them
+        dynamically via message properties. It supports both parameterized queries
+        and bulk operations.
+    </p>
+    <p>Example for a parameterized query:</p>
+    <pre>{
+  "query": "SELECT * FROM my_table WHERE id = ?",
+  "args": [1]
+}</pre>
+    <p>Example for a bulk insert operation:</p>
+    <pre>{
+  "query": "INSERT INTO my_table (id, name) VALUES (?, ?)",
+  "args": [[1, "Alice"], [2, "Bob"]]
+}</pre>
+</script>
+
+
+<!-- Ingest node -->
+<script type="text/javascript">
+    RED.nodes.registerType('ingest',{
+        category: 'storage',
+        color: '#1BC0E9',
+        defaults: {
+            name: {value:""},
+            server: {value:"", type:"cratedb-cluster", required: true},
+            table: {value:""},
+            mapColumns: {value:true},
+        },
+        inputs:1,
+        outputs:1,
+        icon: "cratedb-logo.svg",
+        align: 'right',
+        label: function() {
+            return this.name || "ingest";
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="ingest">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-server"><i class="fa fa-database"></i> Cluster</label>
+        <input type="text" id="node-input-server" placeholder="Crate DB">
+    </div>
+    <div class="form-row">
+        <label for="node-input-table"><i class="fa fa-table"></i> Table</label>
+        <input type="text" id="node-input-table" placeholder="tablename">
+    </div>
+    <div class="form-row">
+        <label for="node-input-mapColumns" style="width: auto !important; padding-right:10px">
+            <i class="fa fa-random"></i> Map properties to columns
+        </label>
+        <input type="checkbox" id="node-input-mapColumns" style="display:inline-block; width:20px; vertical-align:baseline;">
+    </div>
+</script>
+
+
+
+<script type="text/html" data-help-name="ingest">
+    <p>
+        This node is specifically designed for ingesting data into CrateDB tables.
+        It expects a <code>msg.payload</code> that contains the data for insertion,
+        which can be either a single object or an array of objects.
+    </p>
+    <p>Example for inserting a single object:</p>
+    <pre>{
+  "payload": {
+    "id": 1,
+    "name": "Alice"
+  }
+}</pre>
+    <p>Example for bulk insertion:</p>
+    <pre>{
+  "payload": [
+    {
+      "id": 1,
+      "name": "Alice"
+    },
+    {
+      "id": 2,
+      "name": "Bob"
+    }
+  ]
+}</pre>
+    <p>
+        By default, data is inserted into the table configured in the node 
+        settings. To override this, you can set the <code>msg.table</code>
+        property. Additionally, if you need to disable the default mapping of
+        object properties to table columns, set <code>msg.map</code> to 
+        <code>false</code>.
+    </p>
+</script>
+
+
+
+
+<!-- Config node -->
+<script type="text/javascript">
+    RED.nodes.registerType('cratedb-cluster',{
+        category: 'config',
+        defaults: {
+            host: {value:"localhost",required:true},
+            port: {value:4200,required:true,validate:RED.validators.number()},
+            usetls: {value: false},
+            name: {value:""}
+        },
+        icon: "cratedb-logo.svg",
+        credentials : {
+            user: {type:"text"},
+            password: {type:"password"}
+        },
+        label: function() {
+            return this.name||this.host+":"+this.port;
+        }
+    });
+</script>
+
+<script type="text/html" data-template-name="cratedb-cluster">
+    <div class="form-row">
+        <label for="node-config-input-host"><i class="fa fa-globe"></i> Host</label>
+        <input type="text" id="node-config-input-host" placeholder="localhost">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-port"><i class="fa fa-bookmark"></i> Port</label>
+        <input type="text" id="node-config-input-port" placeholder="4200">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-user"><i class="fa fa-user"></i> User</label>
+        <input type="text" id="node-config-input-user" placeholder="crate">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-password"><i class="fa fa-lock"></i> Password</label>
+        <input type="password" id="node-config-input-password">
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-usetls"> </label>
+        <label for="node-config-input-usetls" style="width:70%">
+        <input type="checkbox" id="node-config-input-usetls" style="display:inline-block; width:22px; vertical-align:top;"> Enable secure (SSL/TLS) connection</span>
+        </label>
+    </div>
+    <div class="form-row">
+        <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-config-input-name" placeholder="CrateDB Cluster">
+    </div>
+</script>
