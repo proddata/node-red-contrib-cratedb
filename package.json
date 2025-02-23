@@ -1,6 +1,6 @@
 {
   "name": "@proddata/node-red-contrib-cratedb",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A Node-RED node to support querying CrateDB",
   "main": "index.js",
   "scripts": {
