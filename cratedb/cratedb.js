@@ -16,7 +16,7 @@
 
 module.exports = function (RED) {
     "use strict";
-    const axios = require('axios');
+    const { CrateDBClient } = require('@proddata/node-cratedb');
 
     /*
         Query Node
@@ -24,64 +24,63 @@ module.exports = function (RED) {
 
     function CrateDBNode(config) {
         RED.nodes.createNode(this, config);
-
         this.server = RED.nodes.getNode(config.server);
-        this.connection = getConnection(this.server);
         this.query = config.query;
+        this.client = null;
 
-        this.on('input', request);
+        if (this.server) {
+            this.client = new CrateDBClient({
+                host: this.server.host,
+                port: this.server.port,
+                user: this.server.credentials?.user,
+                password: this.server.credentials?.password,
+                ssl: this.server.usetls,
+                rowMode: 'object'  // Return results as objects instead of arrays
+            });
+        }
+
+        this.on('input', async function(msg, send, done) {
+            if (!this.client) {
+                done("No CrateDB connection configured");
+                return;
+            }
+
+            let query = this.query;
+            let args = [];
+            let bulk_args = null;
+
+            // Allow query override via msg.payload
+            if (msg.payload?.stmt) {
+                query = msg.payload.stmt;
+            }
+            if (msg.payload?.args) {
+                args = msg.payload.args;
+            }
+            if (msg.payload?.bulk_args) {
+                bulk_args = msg.payload.bulk_args;
+            }
+
+            try {
+                let result;
+                if (bulk_args) {
+                    result = await this.client.executeMany(query, bulk_args);
+                } else {
+                    result = await this.client.execute(query, args);
+                }
+
+                msg.payload = result;
+                this.status({fill:"green", shape:"dot", text:"success"});
+                send(msg);
+                done();
+            } catch (err) {
+                this.status({fill:"red", shape:"ring", text:err.message});
+                done(err);
+            }
+        });
+
         this.on('close', function () {
             // tidy up any state
         });
-    }
-
-    async function request(msg, send, done) {
-        let body = {
-            stmt: this.query
-        };
-
-        if (msg.payload.hasOwnProperty('stmt')) {
-            body.stmt = msg.payload.stmt;
-        }
-        if (msg.payload.hasOwnProperty('args')) {
-            body.args = msg.payload.args;
-        }
-        if (msg.payload.hasOwnProperty('bulk_args')) {
-            body.bulk_args = msg.payload.bulk_args;
-        }
-
-        try {
-            let res = await axios.post(this.connection.crate_api, body);
-            msg.payload = parseResult(res.data, body);
-            send(msg);
-            this.status({ fill: "green", shape: "ring", text: "success" });
-
-        } catch (err) {
-            let http_error;
-            try {
-                http_error = err.response.data.error;
-                done(http_error);
-                this.status({ fill: "red", shape: "ring", text: `Error ${http_error.code}` });
-            } catch (err2) {
-                done(err);
-                this.status({ fill: "red", shape: "ring", text: `Error ${err}` });
-            }
-        }
-    }
-
-    function parseResult(data, body) {
-        // single statements
-        if (data.hasOwnProperty("rows")) {
-            data.objects = data.rows.map(row => {
-                let obj = {};
-                row.map((el, i) => obj[data.cols[i]] = el);
-                return obj;
-            });
-        // bulk statements
-        } else if (data.hasOwnProperty("results")) {
-            data.objects = data.results.map(row => row["rowcount"]);
-        }
-        return data;
     }
 
     RED.nodes.registerType("query", CrateDBNode)
@@ -93,47 +92,49 @@ module.exports = function (RED) {
 
     function CrateDBIngestNode(config) {
         RED.nodes.createNode(this, config);
-        var node = this;
-
         this.server = RED.nodes.getNode(config.server);
         this.table = config.table;
         this.mapColumns = config.mapColumns;
+        this.client = null;
 
-        node.connection = getConnection(this.server)
+        if (this.server) {
+            this.client = new CrateDBClient({
+                host: this.server.host,
+                port: this.server.port,
+                user: this.server.credentials?.user,
+                password: this.server.credentials?.password,
+                ssl: this.server.usetls
+            });
+        }
 
-        node.on('input', async function (msg, send, done) {
+        this.on('input', async function(msg, send, done) {
+            if (!this.client) {
+                done("No CrateDB connection configured");
+                return;
+            }
 
-            // Treat every input as array to use bulk requests later
-            const payloadArray = Array.isArray(msg.payload) ? msg.payload : [msg.payload];
-
-            const body = getBulkInsertRequest(node.table, payloadArray, node.mapColumns);
+            const table = msg.table || this.table;
+            const mapColumns = msg.hasOwnProperty('map') ? msg.map : this.mapColumns;
 
             try {
-                const res = await axios.post(node.connection.crate_api, body);
-                const errors = [];
-                for (let i = 0; i < res.data?.results?.length; i++){
-                    if(res.data.results[i] == 1) errors.push(payloadArray[i]);
+                let result;
+                if (Array.isArray(msg.payload)) {
+                    result = await this.client.insertMany(table, msg.payload);
+                } else {
+                    result = await this.client.insert(table, msg.payload);
                 }
 
-                msg.records = {
-                    total: res.data?.results?.length || 0,
-                    errors: errors.length
-                }
-
-                msg.payload = errors.length > 0 ? errors : null;
+                msg.payload = result;
+                this.status({fill:"green", shape:"dot", text:"success"});
                 send(msg);
                 done();
             } catch (err) {
-                if(err.response?.data) {
-                    msg.error = err.response?.data.error;
-                    send(msg);
-                } else {
-                    done(err);
-                }
+                this.status({fill:"red", shape:"ring", text:err.message});
+                done(err);
             }
         });
 
-        node.on('close', function () {
+        this.on('close', function () {
             // tidy up any state
         });
     }

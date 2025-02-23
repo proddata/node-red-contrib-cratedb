@@ -23,14 +23,14 @@
   },
   "author": "Georg Traar <georg@crate.io> (https://www.gtraar.net)",
   "license": "Apache-2.0",
-  "dependencies": {
-    "axios": "^0.26.1"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/proddata/node-red-contrib-cratedb.git"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=21.0.0"
+  },
+  "dependencies": {
+    "@proddata/node-cratedb": "^0.0.14"
   }
 }
